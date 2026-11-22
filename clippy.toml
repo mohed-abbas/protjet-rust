@@ -1,0 +1,6 @@
+# The workspace denies unwrap, expect, panic and indexing in normal code (Cargo.toml).
+# The README §3 tolerates them in tests, so tests are exempted here.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true

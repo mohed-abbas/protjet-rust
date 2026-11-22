@@ -1,0 +1,5 @@
+/target
+
+# Local clone of the official spec repo (github.com/haveneer-training/palestre).
+# Remove this line if you add it as a git submodule instead.
+/palestre-spec/

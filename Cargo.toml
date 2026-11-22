@@ -1,0 +1,28 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[workspace.dependencies]
+# Internal crates. Add vm, exec and arena here (path = "crates/<name>") once a crate
+# depends on them; Cargo warns on unused workspace dependencies.
+pbc = { path = "crates/pbc" }
+
+# External crates: only the ones allowed by the README §3.
+clap = { version = "4", features = ["derive"] }
+
+# Invariant 5 (no panic): these are denied in all non-test code.
+# Test code is exempted by clippy.toml.
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+indexing_slicing = "deny"

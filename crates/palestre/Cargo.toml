@@ -1,0 +1,15 @@
+[package]
+name = "palestre"
+description = "The palestre command-line tool"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+pbc.workspace = true
+clap.workspace = true
+# Planned (journal/D-001): exec, arena. Added when the code first uses them; Cargo warns on unused dependencies.
+
+[lints]
+workspace = true

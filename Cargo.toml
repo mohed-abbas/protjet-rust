@@ -15,6 +15,7 @@ pbc = { path = "crates/pbc" }
 
 # External crates: only the ones allowed by the README §3.
 clap = { version = "4", features = ["derive"] }
+thiserror = "2"
 
 # Invariant 5 (no panic): these are denied in all non-test code.
 # Test code is exempted by clippy.toml.

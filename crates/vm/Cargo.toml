@@ -7,7 +7,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-# Planned (journal/D-001): pbc. Added when the code first uses it; Cargo warns on unused dependencies.
+pbc.workspace = true
 
 [lints]
 workspace = true

@@ -1,12 +1,23 @@
 //! The PBC v1 execution engine: one turn of one agent (SPEC annex B).
 //!
-//! This first part holds the types the other crates code against: the runtime
-//! [`Fault`]s and the [`Host`] trait through which the program senses, acts and draws
-//! random values. The engine itself (`run_turn`) comes next.
+//! [`run_turn`] runs a [`pbc::Program`] against a [`Memory`] that persists between turns,
+//! with a gas budget, and asks a [`Host`] whenever the program senses, acts or draws a
+//! random value. It returns a [`TurnResult`]: the gas used, the [`Fault`] if any, the
+//! attempted action and the trace.
+//!
+//! The engine knows nothing of the world, the arena or the network: those are hosts.
+//! A turn never allocates after it starts (journal D-008).
 #![forbid(unsafe_code)]
 
 mod fault;
+pub mod gas;
 mod host;
+mod stack;
+mod turn;
 
 pub use fault::Fault;
 pub use host::{ActRecord, Action, Host, SenseAnswer};
+pub use turn::{CALL_STACK_DEPTH, DATA_STACK_SLOTS, MEMORY_CELLS, Memory, TurnResult, run_turn};
+
+#[cfg(test)]
+mod tests;

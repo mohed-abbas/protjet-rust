@@ -12,6 +12,7 @@
 mod fault;
 pub mod gas;
 mod host;
+mod ops;
 mod stack;
 mod turn;
 

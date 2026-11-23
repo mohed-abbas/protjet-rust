@@ -3,8 +3,9 @@
 use crate::Fault;
 use crate::gas;
 use crate::host::{ActRecord, Action, Host, SenseAnswer};
+use crate::ops;
 use crate::stack::BoundedStack;
-use pbc::{Instruction, JUMPDEST, Program};
+use pbc::{Instruction, Program};
 
 /// Cells of an agent's memory, indices `0..=255` (B.1).
 pub const MEMORY_CELLS: usize = 256;
@@ -178,23 +179,23 @@ impl<H: Host> Machine<'_, H> {
                 let value = self.constant(k)?;
                 self.push(value)?;
             }
-            I::Add => self.binary(i64::wrapping_add)?,
-            I::Sub => self.binary(i64::wrapping_sub)?,
-            I::Mul => self.binary(i64::wrapping_mul)?,
-            I::Div => self.division(i64::wrapping_div)?,
-            I::Mod => self.division(i64::wrapping_rem)?,
-            I::Neg => self.unary(i64::wrapping_neg)?,
-            I::Eq => self.binary(|a, b| i64::from(a == b))?,
-            I::Lt => self.binary(|a, b| i64::from(a < b))?,
-            I::Gt => self.binary(|a, b| i64::from(a > b))?,
-            I::Not => self.unary(|a| i64::from(a == 0))?,
-            I::And => self.binary(|a, b| a & b)?,
-            I::Or => self.binary(|a, b| a | b)?,
-            I::Xor => self.binary(|a, b| a ^ b)?,
-            I::Shl => self.binary(shl)?,
-            I::Shr => self.binary(shr)?,
-            I::BNot => self.unary(|a| !a)?,
-            I::Sar => self.binary(sar)?,
+            I::Add => self.binary(ops::add)?,
+            I::Sub => self.binary(ops::sub)?,
+            I::Mul => self.binary(ops::mul)?,
+            I::Div => self.division(ops::div)?,
+            I::Mod => self.division(ops::rem)?,
+            I::Neg => self.unary(ops::neg)?,
+            I::Eq => self.binary(ops::eq)?,
+            I::Lt => self.binary(ops::lt)?,
+            I::Gt => self.binary(ops::gt)?,
+            I::Not => self.unary(ops::not)?,
+            I::And => self.binary(ops::and)?,
+            I::Or => self.binary(ops::or)?,
+            I::Xor => self.binary(ops::xor)?,
+            I::Shl => self.binary(ops::shl)?,
+            I::Shr => self.binary(ops::shr)?,
+            I::BNot => self.unary(ops::bnot)?,
+            I::Sar => self.binary(ops::sar)?,
             I::LoadX => {
                 let addr = self.pop()?;
                 let value = self.load(cell(addr)?)?;
@@ -214,25 +215,25 @@ impl<H: Host> Machine<'_, H> {
                 let value = self.pop()?;
                 self.store(usize::from(k), value)?;
             }
-            I::Jmp(d) => return Ok(Flow::Goto(self.relative(next, d)?)),
+            I::Jmp(d) => return Ok(Flow::Goto(ops::relative(self.code, next, d)?)),
             I::Jz(d) => {
                 if self.pop()? == 0 {
-                    return Ok(Flow::Goto(self.relative(next, d)?));
+                    return Ok(Flow::Goto(ops::relative(self.code, next, d)?));
                 }
             }
             I::Jnz(d) => {
                 if self.pop()? != 0 {
-                    return Ok(Flow::Goto(self.relative(next, d)?));
+                    return Ok(Flow::Goto(ops::relative(self.code, next, d)?));
                 }
             }
             I::JumpDest => {}
             I::JmpX => {
                 let target = self.pop()?;
-                return Ok(Flow::Goto(self.jump_target(target)?));
+                return Ok(Flow::Goto(ops::jump_target(self.code, target)?));
             }
             I::Call(d) => {
                 self.push_frame(next)?;
-                return Ok(Flow::Goto(self.relative(next, d)?));
+                return Ok(Flow::Goto(ops::relative(self.code, next, d)?));
             }
             I::Return => {
                 let back = self.calls.pop().ok_or(Fault::CallStackUnderflow)?;
@@ -241,7 +242,7 @@ impl<H: Host> Machine<'_, H> {
             I::CallX => {
                 let target = self.pop()?;
                 self.push_frame(next)?;
-                return Ok(Flow::Goto(self.jump_target(target)?));
+                return Ok(Flow::Goto(ops::jump_target(self.code, target)?));
             }
             I::Sense(k) => {
                 // Room first, so a push that would fail never costs a callback.
@@ -307,22 +308,15 @@ impl<H: Host> Machine<'_, H> {
         self.push(op(a, b))
     }
 
-    /// `DIV` and `MOD`: like [`Self::binary`], but `b == 0` is `DivByZero`.
-    fn division(&mut self, op: impl FnOnce(i64, i64) -> i64) -> Result<(), Fault> {
+    /// `DIV` and `MOD`: like [`Self::binary`], but the operation can fault.
+    fn division(&mut self, op: impl FnOnce(i64, i64) -> Result<i64, Fault>) -> Result<(), Fault> {
         let b = self.pop()?;
         let a = self.pop()?;
-        if b == 0 {
-            return Err(Fault::DivByZero);
-        }
-        self.push(op(a, b))
+        self.push(op(a, b)?)
     }
 
     fn constant(&self, k: i64) -> Result<i64, Fault> {
-        usize::try_from(k)
-            .ok()
-            .and_then(|k| self.constants.get(k))
-            .copied()
-            .ok_or(Fault::BadConst)
+        ops::constant(self.constants, k)
     }
 
     fn load(&self, addr: usize) -> Result<i64, Fault> {
@@ -338,21 +332,6 @@ impl<H: Host> Machine<'_, H> {
     fn push_frame(&mut self, back: usize) -> Result<(), Fault> {
         self.calls.push(back).map_err(|_| Fault::CallStackOverflow)
     }
-
-    /// The target of a relative jump: `next + d`, where `next` follows the jump (B.4).
-    fn relative(&self, next: usize, d: i16) -> Result<usize, Fault> {
-        let next = i64::try_from(next).map_err(|_| Fault::BadJump)?;
-        self.jump_target(next + i64::from(d))
-    }
-
-    /// Checks a jump target, relative or absolute: inside the code, and on a `JUMPDEST`
-    /// byte (B.4).
-    fn jump_target(&self, target: i64) -> Result<usize, Fault> {
-        usize::try_from(target)
-            .ok()
-            .filter(|&t| self.code.get(t) == Some(&JUMPDEST))
-            .ok_or(Fault::BadJump)
-    }
 }
 
 /// A memory address popped by `LOADX` or `STOREX`, if it is in `0..=255`.
@@ -361,24 +340,4 @@ fn cell(addr: i64) -> Result<usize, Fault> {
         .ok()
         .filter(|&addr| addr < MEMORY_CELLS)
         .ok_or(Fault::OutOfBounds)
-}
-
-/// The shift count `n` if it is in `0..=63`.
-fn shift_count(n: i64) -> Option<u32> {
-    u32::try_from(n).ok().filter(|&n| n < 64)
-}
-
-/// `SHL`: logical, `0` for a count outside `0..=63` (B.6).
-fn shl(a: i64, n: i64) -> i64 {
-    shift_count(n).map_or(0, |n| ((a as u64) << n) as i64)
-}
-
-/// `SHR`: logical, `0` for a count outside `0..=63` (B.6).
-fn shr(a: i64, n: i64) -> i64 {
-    shift_count(n).map_or(0, |n| ((a as u64) >> n) as i64)
-}
-
-/// `SAR`: arithmetic, the sign fill for a count outside `0..=63` (B.6).
-fn sar(a: i64, n: i64) -> i64 {
-    shift_count(n).map_or(if a < 0 { -1 } else { 0 }, |n| a >> n)
 }
